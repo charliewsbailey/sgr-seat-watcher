@@ -1,0 +1,80 @@
+# SGR seat watcher -> WhatsApp. Checks one train every ~15 min and messages the moment
+# the watched class has seats, plus a daily "still watching" check-in after 09:00 EAT.
+# sgr_watchdog.yml raises the alarm if this stops. Stops by itself after departure.
+#
+# Arm / kill switch: repository VARIABLE SGR_ARMED (unset = scheduled runs only log).
+# Secrets: WA_MCP_URL, WA_MCP_TOKEN, SGR_TO_NUMBER.
+#   gh variable set SGR_ARMED --body 1 --repo <owner>/<repo>
+# Manual run: Actions -> "SGR seat watcher" -> Run workflow (check / dry_run / test).
+name: SGR seat watcher
+
+on:
+  schedule:
+    - cron: "4,19,34,49 * * * *"        # backup; cron-job.org dispatches every 15 min
+  workflow_dispatch:
+    inputs:
+      check:
+        description: "Only test the WhatsApp MCP token (lists approved recipients, sends nothing)"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Check the site and print the message, send nothing"
+        type: boolean
+        default: false
+      test:
+        description: "Send a TEST WhatsApp now with the current availability"
+        type: boolean
+        default: false
+
+concurrency:
+  group: sgr-watcher
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SGR_SCHED: inter_county
+      SGR_FROM: "2"                 # Nairobi Terminus
+      SGR_TO: "4"                   # Voi
+      SGR_DATE: "12/20/2026"        # mm/dd/yyyy
+      SGR_TIME: "8.00"
+      SGR_DEPART: "08:00 am"
+      SGR_CLASS: "First Class"
+      SGR_TO_NUMBER: ${{ secrets.SGR_TO_NUMBER }}
+      WA_MCP_URL: ${{ secrets.WA_MCP_URL }}
+      WA_MCP_TOKEN: ${{ secrets.WA_MCP_TOKEN }}
+      SGR_HEARTBEAT_HOUR: "9"
+      SGR_STATE_FILE: .sgr_state.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Check WhatsApp MCP token
+        if: inputs.check
+        env:
+        run: python wa_send.py
+      - name: Restore state
+        if: ${{ !inputs.check }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .sgr_state.json
+          key: sgr-state-v1-${{ github.run_id }}
+          restore-keys: sgr-state-v1-
+      - name: Check seats
+        id: watch
+        if: ${{ !inputs.check }}
+        env:
+          SGR_ARMED: ${{ vars.SGR_ARMED }}
+          SGR_TEST: ${{ inputs.test && '1' || '' }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python sgr_first_class_watch.py
+      - name: Save state
+        if: steps.watch.outputs.state_updated == '1'
+        uses: actions/cache/save@v4
+        with:
+          path: .sgr_state.json
+          key: sgr-state-v1-${{ github.run_id }}

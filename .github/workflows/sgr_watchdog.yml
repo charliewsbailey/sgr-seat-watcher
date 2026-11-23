@@ -1,0 +1,58 @@
+# Watchdog for sgr.yml: WhatsApps SGR_ALERT_NUMBER if the seat watcher has had no
+# successful run for 3 h, and again when it recovers. Same SGR_ARMED switch.
+name: SGR watcher watchdog
+
+on:
+  schedule:
+    - cron: "27 * * * *"               # hourly
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Work out the alert and print it, send nothing"
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: sgr-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: .sgr_watchdog.json
+          key: sgr-watchdog-v1-${{ github.run_id }}
+          restore-keys: sgr-watchdog-v1-
+      - name: Check the watcher
+        id: dog
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WA_MCP_URL: ${{ secrets.WA_MCP_URL }}
+          WA_MCP_TOKEN: ${{ secrets.WA_MCP_TOKEN }}
+          SGR_ARMED: ${{ vars.SGR_ARMED }}
+          SGR_STALE_HOURS: "3"
+          SGR_ALERT_NUMBER: ${{ secrets.SGR_ALERT_NUMBER }}
+          SGR_DATE: "12/20/2026"
+          SGR_DEPART: "08:00 am"
+          WATCHDOG_STATE_FILE: .sgr_watchdog.json
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python sgr_watchdog.py
+      - name: Save state
+        if: steps.dog.outputs.state_updated == '1'
+        uses: actions/cache/save@v4
+        with:
+          path: .sgr_watchdog.json
+          key: sgr-watchdog-v1-${{ github.run_id }}

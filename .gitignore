@@ -1,0 +1,4 @@
+.sgr_state.json
+.sgr_watchdog.json
+__pycache__/
+*.pyc
