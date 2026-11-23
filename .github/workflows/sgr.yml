@@ -55,7 +55,6 @@ jobs:
       - run: pip install requests
       - name: Check WhatsApp MCP token
         if: inputs.check
-        env:
         run: python wa_send.py
       - name: Restore state
         if: ${{ !inputs.check }}
