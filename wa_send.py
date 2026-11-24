@@ -80,4 +80,5 @@ def send_number(message, number, *, kind="alert", allow_personal=True):
 
 
 if __name__ == "__main__":          # python wa_send.py  -> token check, sends nothing
-    print(json.dumps(approved_recipients(), indent=1)[:2000])
+    rec = approved_recipients()   # never print the list: this repo's logs are public
+    print(f"token OK - {len(rec) if isinstance(rec, list) else '?'} approved recipients")
